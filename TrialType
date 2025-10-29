@@ -1,0 +1,84 @@
+% trial type analysis for RE paper
+
+%% aggregate trials across rats per drug
+
+% Define the drug condition you are currently running files for
+current_drug = 'saline'; 
+
+allData = {};
+% Define the names of the two columns you want (replace with actual names)
+colsToExtract = {'AnimalID', 'TrialAnalysis_Correct', 'TrialAnalysis_TrialType'};
+
+for i = 1:8 % Change '5' to '8' for Saline/Muscimol
+    filename = sprintf('%s%d.csv', lower(current_drug), i); % Use current_drug to form the filename
+    T = readtable(filename);
+    
+    % Select the columns by name
+    subset = T(:, colsToExtract);
+    
+    % Optional: standardize the variable names for concatenation
+    % RENAME these to be descriptive for the GLMM (RatID, Outcome, TrialType)
+    subset.Properties.VariableNames = {'RatID', 'Outcome', 'TrialType'}; 
+    
+    % --- CRUCIAL CHANGE: Manually Add the Drug Condition Column ---
+    subset.Drug = repmat({current_drug}, height(subset), 1);
+    
+    % Optional: track source file (using 'Source' as placeholder, can be removed)
+    subset.Source = repmat({sprintf('%s%d', lower(current_drug), i)}, height(subset), 1);
+    
+    allData{i} = subset;
+end
+
+% Concatenate all tables vertically for this drug
+GrandTable_Saline = vertcat(allData{:}); 
+disp(['Grand Table for ', current_drug, ' created with Drug column.']);
+
+writetable(GrandTable_Saline, 'GrandTable_Saline.csv')
+
+
+
+%% summary per drug
+
+summary_table = groupsummary(grandTable, 'Col2', {'sum', 'mean'}, 'Col1');
+
+summary_table.IncorrectTrials = summary_table.GroupCount - summary_table.sum_Col1;
+
+summary_table.ProportionIncorrect = 1 - summary_table.mean_Col1;
+
+summary_table.PercentIncorrect = summary_table.ProportionIncorrect * 100;
+
+summary_table.Properties.VariableNames{'Col2'} = 'TrialType';
+
+results = summary_table(:, ...
+    {'TrialType', 'GroupCount', 'sum_Col1', 'IncorrectTrials', 'PercentIncorrect'});
+
+results.Properties.VariableNames{'GroupCount'} = 'TotalTrials';
+results.Properties.VariableNames{'sum_Col1'} = 'CorrectTrials';
+
+disp('--- Summary of Correct/Incorrect Choices by Trial Type (Nicotine) ---');
+disp(results);
+
+writetable(results, 'Nicotine_ByTrialType.csv')
+
+
+
+%% stats
+
+MasterTable = vertcat(GrandTable_Saline, GrandTable_Muscimol, GrandTable_Nicotine, GrandTable_Mec);
+
+% Convert the grouping variables to categorical arrays
+MasterTable.RatID = categorical(MasterTable.RatID);
+MasterTable.Drug = categorical(MasterTable.Drug);
+MasterTable.TrialType = categorical(MasterTable.TrialType);
+MasterTable.Outcome = double(MasterTable.Outcome); % 0/1 numeric
+
+glme = fitglme(MasterTable, ...
+    'Outcome ~ Drug*TrialType + (1|RatID)', ...
+    'Distribution','Binomial');
+
+% Display the model summary
+disp(glme)
+
+
+
+
